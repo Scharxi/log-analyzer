@@ -11,6 +11,15 @@ pub const Level = enum {
     warn,
     @"error",
     debug,
+
+    pub fn rank(self: Level) usize {
+        return switch (self) {
+            .debug => 0,
+            .info => 1,
+            .warn => 2,
+            .@"error" => 3,
+        };
+    }
 };
 
 /// Parsed fields borrow from `line` until that buffer is invalidated.
@@ -117,4 +126,11 @@ test "parse malformed lines" {
     try std.testing.expectError(error.EmptyLine, parseLine(""));
     try std.testing.expectError(error.MissingField, parseLine("2026-05-15T20:00:01Z INFO"));
     try std.testing.expectError(error.InvalidLevel, parseLine("2026-05-15T20:00:01Z BOGUS auth msg"));
+}
+
+test "get level rank" {
+    try std.testing.expectEqual(@as(usize, 0), Level.debug.rank());
+    try std.testing.expectEqual(@as(usize, 1), Level.info.rank());
+    try std.testing.expectEqual(@as(usize, 2), Level.warn.rank());
+    try std.testing.expectEqual(@as(usize, 3), Level.@"error".rank());
 }
