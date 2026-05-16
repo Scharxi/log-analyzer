@@ -16,6 +16,8 @@ const usage =
     \\  --since=<TIMESTAMP>     Same as --since
     \\  --until <TIMESTAMP>     Include lines at or before ISO 8601 time (UTC)
     \\  --until=<TIMESTAMP>     Same as --until
+    \\  --format <text|json>    Output format (default: text)
+    \\  --format=<text|json>    Same as --format
     \\  -h, --help              Show this help
     \\
 ;
@@ -51,8 +53,18 @@ pub fn main(init: std.process.Init) !void {
         opts.time_bounds,
     );
 
-    std.debug.print("{f}\n", .{&stats});
-    if (scan.skipped > 0) {
-        std.log.warn("skipped {d} malformed line(s)", .{scan.skipped});
+    switch (opts.format) {
+        .text => {
+            std.debug.print("{f}\n", .{&stats});
+            if (scan.skipped > 0) {
+                std.log.warn("skipped {d} malformed line(s)", .{scan.skipped});
+            }
+        },
+        .json => {
+            var buf: [4096]u8 = undefined;
+            var w = std.Io.Writer.fixed(&buf);
+            try stats.formatJson(scan.parsed, scan.skipped, &w);
+            try std.Io.File.stdout().writeStreamingAll(init.io, w.buffer[0..w.end]);
+        },
     }
 }

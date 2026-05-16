@@ -2,11 +2,17 @@ const std = @import("std");
 
 const log_analyzer = @import("log_analyzer");
 
+pub const OutputFormat = enum {
+    text,
+    json,
+};
+
 pub const CliOptions = struct {
     path: []const u8,
     module: ?[]const u8 = null,
     level: ?log_analyzer.Level = null,
     time_bounds: log_analyzer.TimeBounds = .{},
+    format: OutputFormat = .text,
 };
 
 pub const ParseError = error{
@@ -17,6 +23,7 @@ pub const ParseError = error{
 const level_prefix = "--level=";
 const since_prefix = "--since=";
 const until_prefix = "--until=";
+const format_prefix = "--format=";
 
 fn matchesAny(s: []const u8, names: []const []const u8) bool {
     for (names) |name| {
@@ -39,11 +46,18 @@ fn parseTimestampValue(s: []const u8) ParseError![]const u8 {
     return log_analyzer.parseTimestamp(s) catch return error.InvalidArgument;
 }
 
+fn parseFormatValue(s: []const u8) ParseError!OutputFormat {
+    if (std.mem.eql(u8, s, "text")) return .text;
+    if (std.mem.eql(u8, s, "json")) return .json;
+    return error.InvalidArgument;
+}
+
 pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
     var path: ?[]const u8 = null;
     var level: ?log_analyzer.Level = null;
     var module: ?[]const u8 = null;
     var time_bounds: log_analyzer.TimeBounds = .{};
+    var format: OutputFormat = .text;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -71,6 +85,12 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             continue;
         }
 
+        if (std.mem.startsWith(u8, arg, format_prefix)) {
+            if (arg.len <= format_prefix.len) return error.InvalidArgument;
+            format = try parseFormatValue(arg[format_prefix.len..]);
+            continue;
+        }
+
         if (matchesAny(arg, &.{ "-l", "--level" })) {
             i = try takeArg(args, i);
             level = try parseLevelValue(args[i]);
@@ -87,6 +107,10 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             i = try takeArg(args, i);
             time_bounds.until = try parseTimestampValue(args[i]);
             continue;
+        } else if (matchesAny(arg, &.{ "--format" })) {
+            i = try takeArg(args, i);
+            format = try parseFormatValue(args[i]);
+            continue;
         }
 
         if (arg.len > 0 and arg[0] == '-') {
@@ -102,6 +126,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
         .module = module,
         .level = level,
         .time_bounds = time_bounds,
+        .format = format,
     };
 }
 
@@ -110,6 +135,7 @@ test "parseArgs positional only" {
     const opts = try parseArgs(&args);
     try std.testing.expectEqualStrings("a.log", opts.path);
     try std.testing.expect(opts.level == null);
+    try std.testing.expectEqual(OutputFormat.text, opts.format);
 }
 
 test "parseArgs --level two-token form" {
@@ -196,5 +222,33 @@ test "parseArgs rejects invalid timestamp flag" {
 
 test "parseArgs --since without value" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--since" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --format json" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--format", "json" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqual(OutputFormat.json, opts.format);
+}
+
+test "parseArgs --format=json" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--format=json" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqual(OutputFormat.json, opts.format);
+}
+
+test "parseArgs --format text" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--format", "text" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqual(OutputFormat.text, opts.format);
+}
+
+test "parseArgs --format invalid" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--format", "xml" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --format without value" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--format" };
     try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
 }

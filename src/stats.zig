@@ -59,6 +59,59 @@ pub const Stats = struct {
         }
         try w.writeAll("} }");
     }
+
+    const max_modules = 256;
+
+    pub fn formatJson(
+        self: *const Stats,
+        parsed: usize,
+        skipped: usize,
+        w: *std.Io.Writer,
+    ) std.Io.Writer.Error!void {
+        const json_opts: std.json.Stringify.Options = .{};
+
+        try w.writeAll("{\n");
+        try w.print("  \"total\": {d},\n", .{self.total});
+        try w.print("  \"info\": {d},\n", .{self.info});
+        try w.print("  \"warn\": {d},\n", .{self.warn});
+        try w.print("  \"error_count\": {d},\n", .{self.error_count});
+        try w.print("  \"debug\": {d},\n", .{self.debug});
+        try w.writeAll("  \"per_module\": {\n");
+
+        var keys: [max_modules][]const u8 = undefined;
+        var count: usize = 0;
+        var it = self.per_module.iterator();
+        while (it.next()) |entry| {
+            if (count >= max_modules) return error.WriteFailed;
+            keys[count] = entry.key_ptr.*;
+            count += 1;
+        }
+
+        const sorted = keys[0..count];
+        std.mem.sort(
+            []const u8,
+            sorted,
+            {},
+            struct {
+                fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                    return std.mem.order(u8, a, b) == .lt;
+                }
+            }.lessThan,
+        );
+
+        for (sorted, 0..) |key, idx| {
+            try w.writeAll("    ");
+            try std.json.Stringify.encodeJsonString(key, json_opts, w);
+            try w.print(": {d}", .{self.per_module.get(key).?});
+            if (idx + 1 < sorted.len) try w.writeAll(",");
+            try w.writeAll("\n");
+        }
+
+        try w.writeAll("  },\n");
+        try w.print("  \"parsed\": {d},\n", .{parsed});
+        try w.print("  \"skipped\": {d}\n", .{skipped});
+        try w.writeAll("}\n");
+    }
 };
 
 test "Stats record and deinit" {
@@ -107,4 +160,53 @@ test "Stats format output" {
     try std.testing.expect(std.mem.indexOf(u8, output, "total=1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "warn=1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "db=1") != null);
+}
+
+test "Stats formatJson output" {
+    const allocator = std.testing.allocator;
+
+    var stats = Stats.init(allocator);
+    defer stats.deinit();
+
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .info,
+        .module = "auth",
+        .message = "ok",
+    });
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .warn,
+        .module = "db",
+        .message = "slow",
+    });
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .@"error",
+        .module = "auth",
+        .message = "fail",
+    });
+
+    var buf: [512]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try stats.formatJson(3, 2, &w);
+    const output = w.buffer[0..w.end];
+
+    const expected =
+        \\{
+        \\  "total": 3,
+        \\  "info": 1,
+        \\  "warn": 1,
+        \\  "error_count": 1,
+        \\  "debug": 0,
+        \\  "per_module": {
+        \\    "auth": 2,
+        \\    "db": 1
+        \\  },
+        \\  "parsed": 3,
+        \\  "skipped": 2
+        \\}
+        \\
+    ;
+    try std.testing.expectEqualStrings(expected, output);
 }
