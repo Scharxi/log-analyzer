@@ -6,6 +6,7 @@ pub const CliOptions = struct {
     path: []const u8,
     module: ?[]const u8 = null,
     level: ?log_analyzer.Level = null,
+    time_bounds: log_analyzer.TimeBounds = .{},
 };
 
 pub const ParseError = error{
@@ -14,6 +15,8 @@ pub const ParseError = error{
 };
 
 const level_prefix = "--level=";
+const since_prefix = "--since=";
+const until_prefix = "--until=";
 
 fn matchesAny(s: []const u8, names: []const []const u8) bool {
     for (names) |name| {
@@ -32,10 +35,15 @@ fn parseLevelValue(s: []const u8) ParseError!log_analyzer.Level {
     return log_analyzer.Level.parse(s) catch return error.InvalidArgument;
 }
 
+fn parseTimestampValue(s: []const u8) ParseError![]const u8 {
+    return log_analyzer.parseTimestamp(s) catch return error.InvalidArgument;
+}
+
 pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
     var path: ?[]const u8 = null;
     var level: ?log_analyzer.Level = null;
     var module: ?[]const u8 = null;
+    var time_bounds: log_analyzer.TimeBounds = .{};
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -51,6 +59,18 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             continue;
         }
 
+        if (std.mem.startsWith(u8, arg, since_prefix)) {
+            if (arg.len <= since_prefix.len) return error.InvalidArgument;
+            time_bounds.since = try parseTimestampValue(arg[since_prefix.len..]);
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, arg, until_prefix)) {
+            if (arg.len <= until_prefix.len) return error.InvalidArgument;
+            time_bounds.until = try parseTimestampValue(arg[until_prefix.len..]);
+            continue;
+        }
+
         if (matchesAny(arg, &.{ "-l", "--level" })) {
             i = try takeArg(args, i);
             level = try parseLevelValue(args[i]);
@@ -58,6 +78,14 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
         } else if (matchesAny(arg, &.{ "-m", "--module" })) {
             i = try takeArg(args, i);
             module = args[i];
+            continue;
+        } else if (matchesAny(arg, &.{ "--since" })) {
+            i = try takeArg(args, i);
+            time_bounds.since = try parseTimestampValue(args[i]);
+            continue;
+        } else if (matchesAny(arg, &.{ "--until" })) {
+            i = try takeArg(args, i);
+            time_bounds.until = try parseTimestampValue(args[i]);
             continue;
         }
 
@@ -73,6 +101,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
         .path = path orelse return error.InvalidArgument,
         .module = module,
         .level = level,
+        .time_bounds = time_bounds,
     };
 }
 
@@ -138,5 +167,34 @@ test "parseArgs -m short form" {
 
 test "parseArgs --module without value" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--module" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --since two-token form" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--since", "2026-05-15T20:00:02Z" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("2026-05-15T20:00:02Z", opts.time_bounds.since.?);
+    try std.testing.expect(opts.time_bounds.until == null);
+}
+
+test "parseArgs --until= form" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--until=2026-05-15T20:00:03Z" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("2026-05-15T20:00:03Z", opts.time_bounds.until.?);
+}
+
+test "parseArgs --since= form" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--since=2026-05-15T20:00:01Z" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("2026-05-15T20:00:01Z", opts.time_bounds.since.?);
+}
+
+test "parseArgs rejects invalid timestamp flag" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--since", "not-valid" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --since without value" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--since" };
     try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
 }

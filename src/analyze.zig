@@ -16,6 +16,7 @@ pub fn processLogFile(
     s: *stats.Stats,
     min_level: ?parser.Level,
     module: ?[]const u8,
+    time_bounds: parser.TimeBounds,
 ) !ScanResult {
     var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
     defer file.close(io);
@@ -37,6 +38,12 @@ pub fn processLogFile(
         if (module != null and !std.mem.eql(u8, entry.module, module.?)) {
             result.skipped += 1;
             continue;
+        }
+        if (time_bounds.since != null or time_bounds.until != null) {
+            if (!parser.timestampInRange(entry.timestamp, time_bounds)) {
+                result.skipped += 1;
+                continue;
+            }
         }
         try s.record(entry);
         result.parsed += 1;
@@ -71,7 +78,7 @@ test "processLogFile parses valid lines and skips malformed" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, null);
+    const scan = try processLogFile(path, io, &s, null, null, .{});
 
     try std.testing.expectEqual(@as(usize, 4), scan.parsed);
     try std.testing.expectEqual(@as(usize, 1), scan.skipped);
@@ -96,7 +103,7 @@ test "processLogFile filters by min level" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, parser.Level.warn, null);
+    const scan = try processLogFile(path, io, &s, parser.Level.warn, null, .{});
 
     try std.testing.expectEqual(@as(usize, 2), scan.parsed);
     try std.testing.expectEqual(@as(usize, 3), scan.skipped);
@@ -121,7 +128,7 @@ test "processLogFile filters by module auth" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "auth");
+    const scan = try processLogFile(path, io, &s, null, "auth", .{});
 
     try std.testing.expectEqual(@as(usize, 3), scan.parsed);
     try std.testing.expectEqual(@as(usize, 2), scan.skipped);
@@ -146,7 +153,7 @@ test "processLogFile filters by module db" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "db");
+    const scan = try processLogFile(path, io, &s, null, "db", .{});
 
     try std.testing.expectEqual(@as(usize, 1), scan.parsed);
     try std.testing.expectEqual(@as(usize, 4), scan.skipped);
@@ -171,7 +178,7 @@ test "processLogFile filters by module with no matches" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "payments");
+    const scan = try processLogFile(path, io, &s, null, "payments", .{});
 
     try std.testing.expectEqual(@as(usize, 0), scan.parsed);
     try std.testing.expectEqual(@as(usize, 5), scan.skipped);
@@ -191,7 +198,7 @@ test "processLogFile filters by module and min level" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, parser.Level.warn, "auth");
+    const scan = try processLogFile(path, io, &s, parser.Level.warn, "auth", .{});
 
     try std.testing.expectEqual(@as(usize, 1), scan.parsed);
     try std.testing.expectEqual(@as(usize, 4), scan.skipped);
@@ -201,5 +208,103 @@ test "processLogFile filters by module and min level" {
     try std.testing.expectEqual(@as(usize, 1), s.error_count);
     try std.testing.expectEqual(@as(usize, 0), s.debug);
     try std.testing.expectEqual(@as(usize, 1), s.per_module.get("auth").?);
+    try std.testing.expect(s.per_module.get("db") == null);
+}
+
+test "processLogFile filters by since timestamp" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, null, .{
+        .since = "2026-05-15T20:00:02Z",
+    });
+
+    try std.testing.expectEqual(@as(usize, 3), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 2), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 0), s.info);
+    try std.testing.expectEqual(@as(usize, 1), s.warn);
+    try std.testing.expectEqual(@as(usize, 1), s.error_count);
+    try std.testing.expectEqual(@as(usize, 1), s.debug);
+}
+
+test "processLogFile filters by until timestamp" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, null, .{
+        .until = "2026-05-15T20:00:02Z",
+    });
+
+    try std.testing.expectEqual(@as(usize, 2), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 3), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 1), s.info);
+    try std.testing.expectEqual(@as(usize, 1), s.warn);
+    try std.testing.expectEqual(@as(usize, 0), s.error_count);
+    try std.testing.expectEqual(@as(usize, 0), s.debug);
+}
+
+test "processLogFile filters by since and until timestamp" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, null, .{
+        .since = "2026-05-15T20:00:02Z",
+        .until = "2026-05-15T20:00:03Z",
+    });
+
+    try std.testing.expectEqual(@as(usize, 2), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 3), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 0), s.info);
+    try std.testing.expectEqual(@as(usize, 1), s.warn);
+    try std.testing.expectEqual(@as(usize, 1), s.error_count);
+    try std.testing.expectEqual(@as(usize, 0), s.debug);
+}
+
+test "processLogFile filters by timestamp and module" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, "auth", .{
+        .since = "2026-05-15T20:00:02Z",
+    });
+
+    try std.testing.expectEqual(@as(usize, 2), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 3), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 0), s.info);
+    try std.testing.expectEqual(@as(usize, 0), s.warn);
+    try std.testing.expectEqual(@as(usize, 1), s.error_count);
+    try std.testing.expectEqual(@as(usize, 1), s.debug);
     try std.testing.expect(s.per_module.get("db") == null);
 }

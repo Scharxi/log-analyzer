@@ -4,6 +4,13 @@ pub const ParseError = error{
     EmptyLine,
     MissingField,
     InvalidLevel,
+    InvalidTimestamp,
+};
+
+/// Inclusive lower/upper bounds on log timestamps (`YYYY-MM-DDTHH:MM:SSZ`).
+pub const TimeBounds = struct {
+    since: ?[]const u8 = null,
+    until: ?[]const u8 = null,
 };
 
 pub const Level = enum {
@@ -44,6 +51,50 @@ fn toLowerAscii(buf: []u8) void {
     }
 }
 
+fn isDigit(c: u8) bool {
+    return c >= '0' and c <= '9';
+}
+
+/// Validates `YYYY-MM-DDTHH:MM:SSZ` and returns the borrowed slice.
+pub fn parseTimestamp(s: []const u8) ParseError![]const u8 {
+    if (s.len != 20) return error.InvalidTimestamp;
+
+    const separators = [_]struct { index: usize, expected: u8 }{
+        .{ .index = 4, .expected = '-' },
+        .{ .index = 7, .expected = '-' },
+        .{ .index = 10, .expected = 'T' },
+        .{ .index = 13, .expected = ':' },
+        .{ .index = 16, .expected = ':' },
+        .{ .index = 19, .expected = 'Z' },
+    };
+
+    for (separators) |sep| {
+        if (s[sep.index] != sep.expected) return error.InvalidTimestamp;
+    }
+
+    for (s, 0..) |c, i| {
+        if (i == 4 or i == 7 or i == 10 or i == 13 or i == 16 or i == 19) continue;
+        if (!isDigit(c)) return error.InvalidTimestamp;
+    }
+
+    return s;
+}
+
+/// UTC ISO timestamps in this format compare correctly as byte strings.
+pub fn compareTimestamp(a: []const u8, b: []const u8) std.math.Order {
+    return std.mem.order(u8, a, b);
+}
+
+pub fn timestampInRange(ts: []const u8, bounds: TimeBounds) bool {
+    if (bounds.since) |since| {
+        if (compareTimestamp(ts, since) == .lt) return false;
+    }
+    if (bounds.until) |until| {
+        if (compareTimestamp(ts, until) == .gt) return false;
+    }
+    return true;
+}
+
 fn parseLevel(s: []const u8) ParseError!Level {
     var tmp: [16]u8 = undefined;
 
@@ -71,6 +122,7 @@ pub fn parseLine(line: []const u8) ParseError!LogEntry {
     const message = line[msg_start..];
 
     const level = try parseLevel(level_s);
+    _ = try parseTimestamp(timestamp);
 
     return .{
         .timestamp = timestamp,
@@ -137,4 +189,53 @@ test "get level rank" {
     try std.testing.expectEqual(@as(usize, 1), Level.info.rank());
     try std.testing.expectEqual(@as(usize, 2), Level.warn.rank());
     try std.testing.expectEqual(@as(usize, 3), Level.@"error".rank());
+}
+
+test "parseTimestamp accepts valid ISO 8601 UTC" {
+    const valid = "2026-05-15T20:00:01Z";
+    try std.testing.expectEqualStrings(valid, try parseTimestamp(valid));
+}
+
+test "parseTimestamp rejects invalid timestamps" {
+    try std.testing.expectError(error.InvalidTimestamp, parseTimestamp("2026-05-15T20:00:01"));
+    try std.testing.expectError(error.InvalidTimestamp, parseTimestamp("not-a-timestamp"));
+    try std.testing.expectError(error.InvalidTimestamp, parseTimestamp("2026-05-15T20:00:01z"));
+}
+
+test "compareTimestamp orders chronologically" {
+    try std.testing.expect(compareTimestamp("2026-05-15T20:00:01Z", "2026-05-15T20:00:02Z") == .lt);
+    try std.testing.expect(compareTimestamp("2026-05-15T20:00:02Z", "2026-05-15T20:00:02Z") == .eq);
+    try std.testing.expect(compareTimestamp("2026-05-15T20:00:03Z", "2026-05-15T20:00:02Z") == .gt);
+}
+
+test "timestampInRange since only" {
+    const bounds = TimeBounds{ .since = "2026-05-15T20:00:02Z" };
+    try std.testing.expect(timestampInRange("2026-05-15T20:00:02Z", bounds));
+    try std.testing.expect(timestampInRange("2026-05-15T20:00:03Z", bounds));
+    try std.testing.expect(!timestampInRange("2026-05-15T20:00:01Z", bounds));
+}
+
+test "timestampInRange until only" {
+    const bounds = TimeBounds{ .until = "2026-05-15T20:00:02Z" };
+    try std.testing.expect(timestampInRange("2026-05-15T20:00:01Z", bounds));
+    try std.testing.expect(timestampInRange("2026-05-15T20:00:02Z", bounds));
+    try std.testing.expect(!timestampInRange("2026-05-15T20:00:03Z", bounds));
+}
+
+test "timestampInRange closed interval" {
+    const bounds = TimeBounds{
+        .since = "2026-05-15T20:00:02Z",
+        .until = "2026-05-15T20:00:03Z",
+    };
+    try std.testing.expect(!timestampInRange("2026-05-15T20:00:01Z", bounds));
+    try std.testing.expect(timestampInRange("2026-05-15T20:00:02Z", bounds));
+    try std.testing.expect(timestampInRange("2026-05-15T20:00:03Z", bounds));
+    try std.testing.expect(!timestampInRange("2026-05-15T20:00:04Z", bounds));
+}
+
+test "parseLine rejects invalid timestamp" {
+    try std.testing.expectError(
+        error.InvalidTimestamp,
+        parseLine("2026-05-15T20:00:01 INFO auth msg"),
+    );
 }
