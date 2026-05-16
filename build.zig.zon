@@ -76,7 +76,6 @@
         "src",
         "test",
         "README.md",
-        // For example...
-        //"LICENSE",
+        "LICENSE",
     },
 }

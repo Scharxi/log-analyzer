@@ -1,5 +1,8 @@
 # log-analyzer
 
+[![Zig](https://img.shields.io/badge/zig-0.16.0+-f7a41d?logo=zig&logoColor=white)](https://ziglang.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 A fast, dependency-free CLI tool written in [Zig](https://ziglang.org/) that scans structured application logs and prints aggregated statistics: counts per level, per module, and optional filters for time range, severity, and message content.
 
 ```text
@@ -358,4 +361,6 @@ zig build run -- test/fixtures/sample.log --format table
 
 ## License
 
-No license file is included yet. Add one before distributing or publishing the package.
+This project is licensed under the [MIT License](LICENSE).
+
+Copyright © 2026 BxfferOverflow
