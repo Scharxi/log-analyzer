@@ -4,6 +4,7 @@ const log_analyzer = @import("log_analyzer");
 
 pub const OutputFormat = enum {
     text,
+    table,
     json,
 };
 
@@ -48,6 +49,7 @@ fn parseTimestampValue(s: []const u8) ParseError![]const u8 {
 
 fn parseFormatValue(s: []const u8) ParseError!OutputFormat {
     if (std.mem.eql(u8, s, "text")) return .text;
+    if (std.mem.eql(u8, s, "table")) return .table;
     if (std.mem.eql(u8, s, "json")) return .json;
     return error.InvalidArgument;
 }
@@ -223,6 +225,12 @@ test "parseArgs rejects invalid timestamp flag" {
 test "parseArgs --since without value" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--since" };
     try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --format table" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--format", "table" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqual(OutputFormat.table, opts.format);
 }
 
 test "parseArgs --format json" {

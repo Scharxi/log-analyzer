@@ -16,8 +16,8 @@ const usage =
     \\  --since=<TIMESTAMP>     Same as --since
     \\  --until <TIMESTAMP>     Include lines at or before ISO 8601 time (UTC)
     \\  --until=<TIMESTAMP>     Same as --until
-    \\  --format <text|json>    Output format (default: text)
-    \\  --format=<text|json>    Same as --format
+    \\  --format <FMT>          Output format: text, table, json (default: text)
+    \\  --format=<FMT>          Same as --format
     \\  -h, --help              Show this help
     \\
 ;
@@ -29,6 +29,21 @@ fn printUsage() void {
 fn envFlagSet(map: *const std.process.Environ.Map, key: []const u8) bool {
     const value = map.get(key) orelse return false;
     return value.len > 0;
+}
+
+fn detectStdoutTerminal(init: std.process.Init, w: *std.Io.Writer) !std.Io.Terminal {
+    const stdout_file = std.Io.File.stdout();
+    const terminal_mode = try std.Io.Terminal.Mode.detect(
+        init.io,
+        stdout_file,
+        envFlagSet(init.environ_map, "NO_COLOR"),
+        envFlagSet(init.environ_map, "CLICOLOR_FORCE"),
+    );
+    return .{ .writer = w, .mode = terminal_mode };
+}
+
+fn writeStdout(init: std.process.Init, bytes: []const u8) !void {
+    try std.Io.File.stdout().writeStreamingAll(init.io, bytes);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -59,27 +74,20 @@ pub fn main(init: std.process.Init) !void {
     );
 
     switch (opts.format) {
-        .text => {
-            const stdout_file = std.Io.File.stdout();
+        .text, .table => {
             var buf: [4096]u8 = undefined;
             var w = std.Io.Writer.fixed(&buf);
+            const terminal = try detectStdoutTerminal(init, &w);
 
-            const terminal_mode = try std.Io.Terminal.Mode.detect(
-                init.io,
-                stdout_file,
-                envFlagSet(init.environ_map, "NO_COLOR"),
-                envFlagSet(init.environ_map, "CLICOLOR_FORCE"),
-            );
-            const terminal = std.Io.Terminal{
-                .writer = &w,
-                .mode = terminal_mode,
-            };
-
-            try stats.format(&w, terminal);
+            switch (opts.format) {
+                .text => try stats.format(&w, terminal),
+                .table => try stats.formatTable(scan.parsed, scan.skipped, &w, terminal),
+                else => unreachable,
+            }
             try w.writeAll("\n");
-            try stdout_file.writeStreamingAll(init.io, buf[0..w.end]);
+            try writeStdout(init, buf[0..w.end]);
 
-            if (scan.skipped > 0) {
+            if (scan.skipped > 0 and opts.format == .text) {
                 std.log.warn("skipped {d} malformed line(s)", .{scan.skipped});
             }
         },
@@ -87,7 +95,7 @@ pub fn main(init: std.process.Init) !void {
             var buf: [4096]u8 = undefined;
             var w = std.Io.Writer.fixed(&buf);
             try stats.formatJson(scan.parsed, scan.skipped, &w);
-            try std.Io.File.stdout().writeStreamingAll(init.io, w.buffer[0..w.end]);
+            try writeStdout(init, w.buffer[0..w.end]);
         },
     }
 }

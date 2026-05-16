@@ -92,6 +92,90 @@ pub const Stats = struct {
 
     const max_modules = 256;
 
+    fn collectSortedModuleKeys(self: *const Stats, keys: [][]const u8) usize {
+        var count: usize = 0;
+        var it = self.per_module.iterator();
+        while (it.next()) |entry| {
+            keys[count] = entry.key_ptr.*;
+            count += 1;
+        }
+        std.mem.sort(
+            []const u8,
+            keys[0..count],
+            {},
+            struct {
+                fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+                    return std.mem.order(u8, a, b) == .lt;
+                }
+            }.lessThan,
+        );
+        return count;
+    }
+
+    fn writeLevelRow(
+        w: *std.Io.Writer,
+        terminal: ?std.Io.Terminal,
+        label: []const u8,
+        value: usize,
+        color: std.Io.Terminal.Color,
+    ) FormatError!void {
+        try w.writeAll("  ");
+        if (terminal) |t| {
+            try t.setColor(color);
+            try w.print("{s:<7}", .{label});
+            try t.setColor(.reset);
+        } else {
+            try w.print("{s:<7}", .{label});
+        }
+        if (terminal) |t| {
+            try t.setColor(color);
+            try w.print("{d}\n", .{value});
+            try t.setColor(.reset);
+        } else {
+            try w.print("{d}\n", .{value});
+        }
+    }
+
+    pub fn formatTable(
+        self: *const Stats,
+        parsed: usize,
+        skipped: usize,
+        w: *std.Io.Writer,
+        terminal: ?std.Io.Terminal,
+    ) FormatError!void {
+        try w.writeAll("Log analysis summary\n");
+        try w.writeAll("====================\n");
+        try w.print("Total lines:  {d}\n", .{self.total});
+        try w.print("Parsed:       {d}\n", .{parsed});
+        try w.print("Skipped:      {d}\n\n", .{skipped});
+
+        try w.writeAll("Levels\n");
+        try w.writeAll("------\n");
+        try writeLevelRow(w, terminal, "DEBUG", self.debug, .cyan);
+        try writeLevelRow(w, terminal, "INFO", self.info, .green);
+        try writeLevelRow(w, terminal, "WARN", self.warn, .yellow);
+        try writeLevelRow(w, terminal, "ERROR", self.error_count, .red);
+
+        var keys: [max_modules][]const u8 = undefined;
+        const module_count = self.collectSortedModuleKeys(&keys);
+        if (module_count == 0) return;
+
+        var max_name_len: usize = "Module".len;
+        for (keys[0..module_count]) |key| {
+            max_name_len = @max(max_name_len, key.len);
+        }
+
+        try w.writeAll("\nModules\n");
+        try w.writeAll("-------\n");
+        for (keys[0..module_count]) |key| {
+            try w.print("  {s}", .{key});
+            const pad = max_name_len - key.len + 2;
+            var i: usize = 0;
+            while (i < pad) : (i += 1) try w.writeAll(" ");
+            try w.print("{d}\n", .{self.per_module.get(key).?});
+        }
+    }
+
     pub fn formatJson(
         self: *const Stats,
         parsed: usize,
@@ -109,31 +193,14 @@ pub const Stats = struct {
         try w.writeAll("  \"per_module\": {\n");
 
         var keys: [max_modules][]const u8 = undefined;
-        var count: usize = 0;
-        var it = self.per_module.iterator();
-        while (it.next()) |entry| {
-            if (count >= max_modules) return error.WriteFailed;
-            keys[count] = entry.key_ptr.*;
-            count += 1;
-        }
+        const count = self.collectSortedModuleKeys(&keys);
+        if (count >= max_modules) return error.WriteFailed;
 
-        const sorted = keys[0..count];
-        std.mem.sort(
-            []const u8,
-            sorted,
-            {},
-            struct {
-                fn lessThan(_: void, a: []const u8, b: []const u8) bool {
-                    return std.mem.order(u8, a, b) == .lt;
-                }
-            }.lessThan,
-        );
-
-        for (sorted, 0..) |key, idx| {
+        for (keys[0..count], 0..) |key, idx| {
             try w.writeAll("    ");
             try std.json.Stringify.encodeJsonString(key, json_opts, w);
             try w.print(": {d}", .{self.per_module.get(key).?});
-            if (idx + 1 < sorted.len) try w.writeAll(",");
+            if (idx + 1 < count) try w.writeAll(",");
             try w.writeAll("\n");
         }
 
@@ -278,4 +345,42 @@ test "Stats formatJson output" {
         \\
     ;
     try std.testing.expectEqualStrings(expected, output);
+}
+
+test "Stats formatTable output" {
+    const allocator = std.testing.allocator;
+
+    var stats = Stats.init(allocator);
+    defer stats.deinit();
+
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .info,
+        .module = "auth",
+        .message = "ok",
+    });
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .warn,
+        .module = "db",
+        .message = "slow",
+    });
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .@"error",
+        .module = "auth",
+        .message = "fail",
+    });
+
+    var buf: [512]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    try stats.formatTable(3, 1, &w, null);
+    const output = w.buffer[0..w.end];
+
+    try std.testing.expect(std.mem.indexOf(u8, output, "Log analysis summary") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Total lines:  3") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "Skipped:      1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "INFO    1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "auth  2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "db    1") != null);
 }
