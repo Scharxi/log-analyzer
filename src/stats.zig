@@ -45,11 +45,41 @@ pub const Stats = struct {
         result.value_ptr.* += 1;
     }
 
-    pub fn format(self: *const Stats, w: *std.Io.Writer) std.Io.Writer.Error!void {
-        try w.print(
-            "Stats{{ total={d}, info={d}, warn={d}, error_count={d}, debug={d}, per_module={{",
-            .{ self.total, self.info, self.warn, self.error_count, self.debug },
-        );
+    const FormatError = std.Io.Writer.Error || std.Io.Terminal.SetColorError;
+
+    fn writeLevelField(
+        w: *std.Io.Writer,
+        terminal: ?std.Io.Terminal,
+        label: []const u8,
+        value: usize,
+        color: std.Io.Terminal.Color,
+    ) FormatError!void {
+        try w.writeAll(label);
+        if (terminal) |t| {
+            try t.setColor(color);
+            try w.print("{d}", .{value});
+            try t.setColor(.reset);
+        } else {
+            try w.print("{d}", .{value});
+        }
+    }
+
+    pub fn format(
+        self: *const Stats,
+        w: *std.Io.Writer,
+        terminal: ?std.Io.Terminal,
+    ) FormatError!void {
+        try w.writeAll("Stats{ total=");
+        try w.print("{d}", .{self.total});
+        try w.writeAll(", ");
+        try writeLevelField(w, terminal, "info=", self.info, .green);
+        try w.writeAll(", ");
+        try writeLevelField(w, terminal, "warn=", self.warn, .yellow);
+        try w.writeAll(", ");
+        try writeLevelField(w, terminal, "error_count=", self.error_count, .red);
+        try w.writeAll(", ");
+        try writeLevelField(w, terminal, "debug=", self.debug, .cyan);
+        try w.writeAll(", per_module={");
         var it = self.per_module.iterator();
         var first = true;
         while (it.next()) |entry| {
@@ -154,12 +184,51 @@ test "Stats format output" {
 
     var buf: [256]u8 = undefined;
     var w = std.Io.Writer.fixed(&buf);
-    try stats.format(&w);
+    try stats.format(&w, null);
     const output = w.buffer[0..w.end];
 
     try std.testing.expect(std.mem.indexOf(u8, output, "total=1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "warn=1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "db=1") != null);
+}
+
+test "Stats format colors level counts" {
+    const allocator = std.testing.allocator;
+
+    var stats = Stats.init(allocator);
+    defer stats.deinit();
+
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .info,
+        .module = "auth",
+        .message = "ok",
+    });
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .warn,
+        .module = "db",
+        .message = "slow",
+    });
+    try stats.record(.{
+        .timestamp = "ts",
+        .level = .@"error",
+        .module = "auth",
+        .message = "fail",
+    });
+
+    var buf: [512]u8 = undefined;
+    var w = std.Io.Writer.fixed(&buf);
+    const terminal = std.Io.Terminal{
+        .writer = &w,
+        .mode = .escape_codes,
+    };
+    try stats.format(&w, terminal);
+    const output = w.buffer[0..w.end];
+
+    try std.testing.expect(std.mem.indexOf(u8, output, "info=\x1b[32m1\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "warn=\x1b[33m1\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "error_count=\x1b[31m1\x1b[0m") != null);
 }
 
 test "Stats formatJson output" {

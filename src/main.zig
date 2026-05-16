@@ -26,6 +26,11 @@ fn printUsage() void {
     std.debug.print("{s}", .{usage});
 }
 
+fn envFlagSet(map: *const std.process.Environ.Map, key: []const u8) bool {
+    const value = map.get(key) orelse return false;
+    return value.len > 0;
+}
+
 pub fn main(init: std.process.Init) !void {
     const arena = init.arena.allocator();
     const args = try init.minimal.args.toSlice(arena);
@@ -55,7 +60,25 @@ pub fn main(init: std.process.Init) !void {
 
     switch (opts.format) {
         .text => {
-            std.debug.print("{f}\n", .{&stats});
+            const stdout_file = std.Io.File.stdout();
+            var buf: [4096]u8 = undefined;
+            var w = std.Io.Writer.fixed(&buf);
+
+            const terminal_mode = try std.Io.Terminal.Mode.detect(
+                init.io,
+                stdout_file,
+                envFlagSet(init.environ_map, "NO_COLOR"),
+                envFlagSet(init.environ_map, "CLICOLOR_FORCE"),
+            );
+            const terminal = std.Io.Terminal{
+                .writer = &w,
+                .mode = terminal_mode,
+            };
+
+            try stats.format(&w, terminal);
+            try w.writeAll("\n");
+            try stdout_file.writeStreamingAll(init.io, buf[0..w.end]);
+
             if (scan.skipped > 0) {
                 std.log.warn("skipped {d} malformed line(s)", .{scan.skipped});
             }
