@@ -1,0 +1,5 @@
+2026-05-15T20:00:01Z INFO auth login ok
+2026-05-15T20:00:02Z WARN db connection slow
+2026-05-15T20:00:03Z ERROR auth invalid credentials
+2026-05-15T20:00:04Z DEBUG auth token refreshed
+not a valid log line
