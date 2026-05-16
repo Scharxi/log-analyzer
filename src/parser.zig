@@ -85,6 +85,11 @@ pub fn compareTimestamp(a: []const u8, b: []const u8) std.math.Order {
     return std.mem.order(u8, a, b);
 }
 
+/// Returns true when `pattern` occurs in `message` (literal substring).
+pub fn messageMatches(message: []const u8, pattern: []const u8) bool {
+    return std.mem.indexOf(u8, message, pattern) != null;
+}
+
 pub fn timestampInRange(ts: []const u8, bounds: TimeBounds) bool {
     if (bounds.since) |since| {
         if (compareTimestamp(ts, since) == .lt) return false;
@@ -231,6 +236,13 @@ test "timestampInRange closed interval" {
     try std.testing.expect(timestampInRange("2026-05-15T20:00:02Z", bounds));
     try std.testing.expect(timestampInRange("2026-05-15T20:00:03Z", bounds));
     try std.testing.expect(!timestampInRange("2026-05-15T20:00:04Z", bounds));
+}
+
+test "messageMatches substring" {
+    try std.testing.expect(messageMatches("login failed for user", "login failed"));
+    try std.testing.expect(messageMatches("login failed", "login failed"));
+    try std.testing.expect(!messageMatches("login ok", "login failed"));
+    try std.testing.expect(!messageMatches("", "x"));
 }
 
 test "parseLine rejects invalid timestamp" {

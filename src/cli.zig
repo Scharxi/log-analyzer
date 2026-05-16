@@ -17,6 +17,7 @@ pub const CliOptions = struct {
     input: Input,
     module: ?[]const u8 = null,
     level: ?log_analyzer.Level = null,
+    grep: ?[]const u8 = null,
     time_bounds: log_analyzer.TimeBounds = .{},
     format: OutputFormat = .text,
 };
@@ -30,6 +31,7 @@ const level_prefix = "--level=";
 const since_prefix = "--since=";
 const until_prefix = "--until=";
 const format_prefix = "--format=";
+const grep_prefix = "--grep=";
 
 fn matchesAny(s: []const u8, names: []const []const u8) bool {
     for (names) |name| {
@@ -59,12 +61,18 @@ fn parseFormatValue(s: []const u8) ParseError!OutputFormat {
     return error.InvalidArgument;
 }
 
+fn parseGrepValue(s: []const u8) ParseError![]const u8 {
+    if (s.len == 0) return error.InvalidArgument;
+    return s;
+}
+
 pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
     var path: ?[]const u8 = null;
     var level: ?log_analyzer.Level = null;
     var module: ?[]const u8 = null;
     var time_bounds: log_analyzer.TimeBounds = .{};
     var format: OutputFormat = .text;
+    var grep: ?[]const u8 = null;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -98,6 +106,12 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             continue;
         }
 
+        if (std.mem.startsWith(u8, arg, grep_prefix)) {
+            if (arg.len <= grep_prefix.len) return error.InvalidArgument;
+            grep = try parseGrepValue(arg[grep_prefix.len..]);
+            continue;
+        }
+
         if (matchesAny(arg, &.{ "-l", "--level" })) {
             i = try takeArg(args, i);
             level = try parseLevelValue(args[i]);
@@ -118,6 +132,10 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             i = try takeArg(args, i);
             format = try parseFormatValue(args[i]);
             continue;
+        } else if (matchesAny(arg, &.{ "--grep" })) {
+            i = try takeArg(args, i);
+            grep = try parseGrepValue(args[i]);
+            continue;
         }
 
         if (arg.len > 0 and arg[0] == '-') {
@@ -132,6 +150,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
         .input = if (path) |p| .{ .file = p } else .stdin,
         .module = module,
         .level = level,
+        .grep = grep,
         .time_bounds = time_bounds,
         .format = format,
     };
@@ -269,5 +288,27 @@ test "parseArgs --format invalid" {
 
 test "parseArgs --format without value" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--format" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --grep two-token form" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--grep", "login failed" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("login failed", opts.grep.?);
+}
+
+test "parseArgs --grep= form" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--grep=invalid" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("invalid", opts.grep.?);
+}
+
+test "parseArgs --grep without value" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--grep" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --grep= empty value" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--grep=" };
     try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
 }

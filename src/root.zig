@@ -11,6 +11,7 @@ pub const Stats = stats.Stats;
 pub const ScanResult = analyze.ScanResult;
 
 pub const parseLine = parser.parseLine;
+pub const messageMatches = parser.messageMatches;
 pub const processLogFile = analyze.processLogFile;
 pub const processLogStdin = analyze.processLogStdin;
 pub const processLogReader = analyze.processLogReader;

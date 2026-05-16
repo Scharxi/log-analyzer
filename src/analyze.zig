@@ -15,6 +15,7 @@ pub fn processLogReader(
     s: *stats.Stats,
     min_level: ?parser.Level,
     module: ?[]const u8,
+    grep: ?[]const u8,
     time_bounds: parser.TimeBounds,
 ) !ScanResult {
     var result: ScanResult = .{};
@@ -28,6 +29,10 @@ pub fn processLogReader(
             continue;
         }
         if (module != null and !std.mem.eql(u8, entry.module, module.?)) {
+            result.skipped += 1;
+            continue;
+        }
+        if (grep != null and !parser.messageMatches(entry.message, grep.?)) {
             result.skipped += 1;
             continue;
         }
@@ -49,6 +54,7 @@ pub fn processLogFile(
     s: *stats.Stats,
     min_level: ?parser.Level,
     module: ?[]const u8,
+    grep: ?[]const u8,
     time_bounds: parser.TimeBounds,
 ) !ScanResult {
     var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
@@ -56,7 +62,7 @@ pub fn processLogFile(
 
     var buf: [read_buf_size]u8 = undefined;
     var file_reader = file.reader(io, &buf);
-    return processLogReader(&file_reader.interface, s, min_level, module, time_bounds);
+    return processLogReader(&file_reader.interface, s, min_level, module, grep, time_bounds);
 }
 
 pub fn processLogStdin(
@@ -64,11 +70,12 @@ pub fn processLogStdin(
     s: *stats.Stats,
     min_level: ?parser.Level,
     module: ?[]const u8,
+    grep: ?[]const u8,
     time_bounds: parser.TimeBounds,
 ) !ScanResult {
     var buf: [read_buf_size]u8 = undefined;
     var stdin_reader = std.Io.File.stdin().reader(io, &buf);
-    return processLogReader(&stdin_reader.interface, s, min_level, module, time_bounds);
+    return processLogReader(&stdin_reader.interface, s, min_level, module, grep, time_bounds);
 }
 
 const sample_log =
@@ -98,7 +105,7 @@ test "processLogFile parses valid lines and skips malformed" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, null, .{});
+    const scan = try processLogFile(path, io, &s, null, null, null, .{});
 
     try std.testing.expectEqual(@as(usize, 4), scan.parsed);
     try std.testing.expectEqual(@as(usize, 1), scan.skipped);
@@ -123,7 +130,7 @@ test "processLogFile filters by min level" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, parser.Level.warn, null, .{});
+    const scan = try processLogFile(path, io, &s, parser.Level.warn, null, null, .{});
 
     try std.testing.expectEqual(@as(usize, 2), scan.parsed);
     try std.testing.expectEqual(@as(usize, 3), scan.skipped);
@@ -148,7 +155,7 @@ test "processLogFile filters by module auth" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "auth", .{});
+    const scan = try processLogFile(path, io, &s, null, "auth", null, .{});
 
     try std.testing.expectEqual(@as(usize, 3), scan.parsed);
     try std.testing.expectEqual(@as(usize, 2), scan.skipped);
@@ -173,7 +180,7 @@ test "processLogFile filters by module db" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "db", .{});
+    const scan = try processLogFile(path, io, &s, null, "db", null, .{});
 
     try std.testing.expectEqual(@as(usize, 1), scan.parsed);
     try std.testing.expectEqual(@as(usize, 4), scan.skipped);
@@ -198,7 +205,7 @@ test "processLogFile filters by module with no matches" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "payments", .{});
+    const scan = try processLogFile(path, io, &s, null, "payments", null, .{});
 
     try std.testing.expectEqual(@as(usize, 0), scan.parsed);
     try std.testing.expectEqual(@as(usize, 5), scan.skipped);
@@ -218,7 +225,7 @@ test "processLogFile filters by module and min level" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, parser.Level.warn, "auth", .{});
+    const scan = try processLogFile(path, io, &s, parser.Level.warn, "auth", null, .{});
 
     try std.testing.expectEqual(@as(usize, 1), scan.parsed);
     try std.testing.expectEqual(@as(usize, 4), scan.skipped);
@@ -243,7 +250,7 @@ test "processLogFile filters by since timestamp" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, null, .{
+    const scan = try processLogFile(path, io, &s, null, null, null, .{
         .since = "2026-05-15T20:00:02Z",
     });
 
@@ -267,7 +274,7 @@ test "processLogFile filters by until timestamp" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, null, .{
+    const scan = try processLogFile(path, io, &s, null, null, null, .{
         .until = "2026-05-15T20:00:02Z",
     });
 
@@ -291,7 +298,7 @@ test "processLogFile filters by since and until timestamp" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, null, .{
+    const scan = try processLogFile(path, io, &s, null, null, null, .{
         .since = "2026-05-15T20:00:02Z",
         .until = "2026-05-15T20:00:03Z",
     });
@@ -316,7 +323,7 @@ test "processLogFile filters by timestamp and module" {
     var s = stats.Stats.init(allocator);
     defer s.deinit();
 
-    const scan = try processLogFile(path, io, &s, null, "auth", .{
+    const scan = try processLogFile(path, io, &s, null, "auth", null, .{
         .since = "2026-05-15T20:00:02Z",
     });
 
@@ -327,4 +334,67 @@ test "processLogFile filters by timestamp and module" {
     try std.testing.expectEqual(@as(usize, 1), s.error_count);
     try std.testing.expectEqual(@as(usize, 1), s.debug);
     try std.testing.expect(s.per_module.get("db") == null);
+}
+
+test "processLogFile filters by grep substring in message" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, null, "invalid", .{});
+
+    try std.testing.expectEqual(@as(usize, 1), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 4), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 1), s.total);
+    try std.testing.expectEqual(@as(usize, 0), s.info);
+    try std.testing.expectEqual(@as(usize, 0), s.warn);
+    try std.testing.expectEqual(@as(usize, 1), s.error_count);
+    try std.testing.expectEqual(@as(usize, 0), s.debug);
+    try std.testing.expectEqual(@as(usize, 1), s.per_module.get("auth").?);
+}
+
+test "processLogFile grep with no matches" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, null, "login failed", .{});
+
+    try std.testing.expectEqual(@as(usize, 0), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 5), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 0), s.total);
+}
+
+test "processLogFile filters by grep and module" {
+    const io = std.testing.io;
+    const allocator = std.testing.allocator;
+
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const path = try writeSampleLog(io, &tmp);
+
+    var s = stats.Stats.init(allocator);
+    defer s.deinit();
+
+    const scan = try processLogFile(path, io, &s, null, "auth", "login", .{});
+
+    try std.testing.expectEqual(@as(usize, 1), scan.parsed);
+    try std.testing.expectEqual(@as(usize, 4), scan.skipped);
+    try std.testing.expectEqual(@as(usize, 1), s.info);
+    try std.testing.expectEqual(@as(usize, 0), s.error_count);
 }

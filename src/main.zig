@@ -14,6 +14,8 @@ const usage =
     \\  -l, --level <LEVEL>     Minimum level (debug, info, warn, error)
     \\  --level=<LEVEL>         Same as --level
     \\  -m, --module <NAME>     Only include lines from this module
+    \\  --grep <PATTERN>        Only include lines whose message contains PATTERN
+    \\  --grep=<PATTERN>        Same as --grep
     \\  --since <TIMESTAMP>     Include lines at or after ISO 8601 time (UTC)
     \\  --since=<TIMESTAMP>     Same as --since
     \\  --until <TIMESTAMP>     Include lines at or before ISO 8601 time (UTC)
@@ -73,6 +75,7 @@ pub fn main(init: std.process.Init) !void {
             &stats,
             opts.level,
             opts.module,
+            opts.grep,
             opts.time_bounds,
         ),
         .stdin => blk: {
@@ -86,6 +89,7 @@ pub fn main(init: std.process.Init) !void {
                 &stats,
                 opts.level,
                 opts.module,
+                opts.grep,
                 opts.time_bounds,
             );
         },
