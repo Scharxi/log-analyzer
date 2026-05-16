@@ -20,6 +20,10 @@ pub const Level = enum {
             .@"error" => 3,
         };
     }
+
+    pub fn parse(s: []const u8) ParseError!Level {
+        return parseLevel(s);
+    }
 };
 
 /// Parsed fields borrow from `line` until that buffer is invalidated.

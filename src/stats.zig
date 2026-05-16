@@ -100,9 +100,9 @@ test "Stats format output" {
     });
 
     var buf: [256]u8 = undefined;
-    var fba = std.Io.Writer.fixed(&buf);
-    try stats.format(&fba.interface);
-    const output = fba.interface.buffer[0..fba.interface.end];
+    var w = std.Io.Writer.fixed(&buf);
+    try stats.format(&w);
+    const output = w.buffer[0..w.end];
 
     try std.testing.expect(std.mem.indexOf(u8, output, "total=1") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "warn=1") != null);
