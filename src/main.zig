@@ -11,6 +11,7 @@ const usage =
     \\Options:
     \\  -l, --level <LEVEL>     Minimum level (debug, info, warn, error)
     \\  --level=<LEVEL>         Same as --level
+    \\  -m, --module <NAME>     Only include lines from this module
     \\  -h, --help              Show this help
     \\
 ;
@@ -37,7 +38,7 @@ pub fn main(init: std.process.Init) !void {
     var stats = log_analyzer.Stats.init(init.gpa);
     defer stats.deinit();
 
-    const scan = try log_analyzer.processLogFile(opts.path, init.io, &stats, opts.level);
+    const scan = try log_analyzer.processLogFile(opts.path, init.io, &stats, opts.level, opts.module);
 
     std.debug.print("{f}\n", .{&stats});
     if (scan.skipped > 0) {

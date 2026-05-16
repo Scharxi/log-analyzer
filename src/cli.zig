@@ -4,6 +4,7 @@ const log_analyzer = @import("log_analyzer");
 
 pub const CliOptions = struct {
     path: []const u8,
+    module: ?[]const u8 = null,
     level: ?log_analyzer.Level = null,
 };
 
@@ -34,6 +35,7 @@ fn parseLevelValue(s: []const u8) ParseError!log_analyzer.Level {
 pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
     var path: ?[]const u8 = null;
     var level: ?log_analyzer.Level = null;
+    var module: ?[]const u8 = null;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -53,6 +55,10 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             i = try takeArg(args, i);
             level = try parseLevelValue(args[i]);
             continue;
+        } else if (matchesAny(arg, &.{ "-m", "--module" })) {
+            i = try takeArg(args, i);
+            module = args[i];
+            continue;
         }
 
         if (arg.len > 0 and arg[0] == '-') {
@@ -65,6 +71,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
 
     return .{
         .path = path orelse return error.InvalidArgument,
+        .module = module,
         .level = level,
     };
 }
@@ -112,5 +119,24 @@ test "parseArgs --level without value" {
 
 test "parseArgs --level= empty value" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--level=" };
+    try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
+}
+
+test "parseArgs --module" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--module", "auth" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("a.log", opts.path);
+    try std.testing.expectEqualStrings("auth", opts.module.?);
+    try std.testing.expect(opts.level == null);
+}
+
+test "parseArgs -m short form" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "-m", "db" };
+    const opts = try parseArgs(&args);
+    try std.testing.expectEqualStrings("db", opts.module.?);
+}
+
+test "parseArgs --module without value" {
+    const args = [_][]const u8{ "log_analyzer", "a.log", "--module" };
     try std.testing.expectError(error.InvalidArgument, parseArgs(&args));
 }
