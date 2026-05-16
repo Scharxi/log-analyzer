@@ -4,9 +4,11 @@ const cli = @import("cli.zig");
 const log_analyzer = @import("log_analyzer");
 
 const usage =
-    \\Usage: log_analyzer [options] <log-file>
+    \\Usage: log_analyzer [options] [log-file]
     \\
     \\Analyze a log file and print statistics.
+    \\Reads from stdin when log-file is omitted:
+    \\  cat app.log | log_analyzer
     \\
     \\Options:
     \\  -l, --level <LEVEL>     Minimum level (debug, info, warn, error)
@@ -64,14 +66,30 @@ pub fn main(init: std.process.Init) !void {
     var stats = log_analyzer.Stats.init(init.gpa);
     defer stats.deinit();
 
-    const scan = try log_analyzer.processLogFile(
-        opts.path,
-        init.io,
-        &stats,
-        opts.level,
-        opts.module,
-        opts.time_bounds,
-    );
+    const scan = switch (opts.input) {
+        .file => |path| try log_analyzer.processLogFile(
+            path,
+            init.io,
+            &stats,
+            opts.level,
+            opts.module,
+            opts.time_bounds,
+        ),
+        .stdin => blk: {
+            const stdin = std.Io.File.stdin();
+            if (try stdin.isTty(init.io)) {
+                printUsage();
+                return error.InvalidArgument;
+            }
+            break :blk try log_analyzer.processLogStdin(
+                init.io,
+                &stats,
+                opts.level,
+                opts.module,
+                opts.time_bounds,
+            );
+        },
+    };
 
     switch (opts.format) {
         .text, .table => {

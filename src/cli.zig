@@ -8,8 +8,13 @@ pub const OutputFormat = enum {
     json,
 };
 
+pub const Input = union(enum) {
+    file: []const u8,
+    stdin,
+};
+
 pub const CliOptions = struct {
-    path: []const u8,
+    input: Input,
     module: ?[]const u8 = null,
     level: ?log_analyzer.Level = null,
     time_bounds: log_analyzer.TimeBounds = .{},
@@ -124,7 +129,7 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
     }
 
     return .{
-        .path = path orelse return error.InvalidArgument,
+        .input = if (path) |p| .{ .file = p } else .stdin,
         .module = module,
         .level = level,
         .time_bounds = time_bounds,
@@ -135,22 +140,28 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
 test "parseArgs positional only" {
     const args = [_][]const u8{ "log_analyzer", "a.log" };
     const opts = try parseArgs(&args);
-    try std.testing.expectEqualStrings("a.log", opts.path);
+    try std.testing.expectEqualStrings("a.log", opts.input.file);
     try std.testing.expect(opts.level == null);
     try std.testing.expectEqual(OutputFormat.text, opts.format);
+}
+
+test "parseArgs flags only reads stdin" {
+    const args = [_][]const u8{ "log_analyzer", "--format", "json" };
+    const opts = try parseArgs(&args);
+    try std.testing.expect(opts.input == .stdin);
 }
 
 test "parseArgs --level two-token form" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--level", "warn" };
     const opts = try parseArgs(&args);
-    try std.testing.expectEqualStrings("a.log", opts.path);
+    try std.testing.expectEqualStrings("a.log", opts.input.file);
     try std.testing.expectEqual(log_analyzer.Level.warn, opts.level.?);
 }
 
 test "parseArgs --level= form" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--level=debug" };
     const opts = try parseArgs(&args);
-    try std.testing.expectEqualStrings("a.log", opts.path);
+    try std.testing.expectEqualStrings("a.log", opts.input.file);
     try std.testing.expectEqual(log_analyzer.Level.debug, opts.level.?);
 }
 
@@ -182,7 +193,7 @@ test "parseArgs --level= empty value" {
 test "parseArgs --module" {
     const args = [_][]const u8{ "log_analyzer", "a.log", "--module", "auth" };
     const opts = try parseArgs(&args);
-    try std.testing.expectEqualStrings("a.log", opts.path);
+    try std.testing.expectEqualStrings("a.log", opts.input.file);
     try std.testing.expectEqualStrings("auth", opts.module.?);
     try std.testing.expect(opts.level == null);
 }

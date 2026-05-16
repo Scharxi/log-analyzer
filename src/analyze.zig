@@ -10,21 +10,13 @@ pub const ScanResult = struct {
     skipped: usize = 0,
 };
 
-pub fn processLogFile(
-    path: []const u8,
-    io: std.Io,
+pub fn processLogReader(
+    reader: *std.Io.Reader,
     s: *stats.Stats,
     min_level: ?parser.Level,
     module: ?[]const u8,
     time_bounds: parser.TimeBounds,
 ) !ScanResult {
-    var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
-    defer file.close(io);
-
-    var buf: [read_buf_size]u8 = undefined;
-    var file_reader = file.reader(io, &buf);
-    const reader: *std.Io.Reader = &file_reader.interface;
-
     var result: ScanResult = .{};
     while (try reader.takeDelimiter('\n')) |line| {
         const entry = parser.parseLine(line) catch {
@@ -49,6 +41,34 @@ pub fn processLogFile(
         result.parsed += 1;
     }
     return result;
+}
+
+pub fn processLogFile(
+    path: []const u8,
+    io: std.Io,
+    s: *stats.Stats,
+    min_level: ?parser.Level,
+    module: ?[]const u8,
+    time_bounds: parser.TimeBounds,
+) !ScanResult {
+    var file = try std.Io.Dir.cwd().openFile(io, path, .{ .mode = .read_only });
+    defer file.close(io);
+
+    var buf: [read_buf_size]u8 = undefined;
+    var file_reader = file.reader(io, &buf);
+    return processLogReader(&file_reader.interface, s, min_level, module, time_bounds);
+}
+
+pub fn processLogStdin(
+    io: std.Io,
+    s: *stats.Stats,
+    min_level: ?parser.Level,
+    module: ?[]const u8,
+    time_bounds: parser.TimeBounds,
+) !ScanResult {
+    var buf: [read_buf_size]u8 = undefined;
+    var stdin_reader = std.Io.File.stdin().reader(io, &buf);
+    return processLogReader(&stdin_reader.interface, s, min_level, module, time_bounds);
 }
 
 const sample_log =
