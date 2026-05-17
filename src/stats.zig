@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const parser = @import("parser.zig");
+const log_entry_mod = @import("entry.zig");
 
 pub const Stats = struct {
     allocator: std.mem.Allocator,
@@ -27,19 +27,20 @@ pub const Stats = struct {
     }
 
     /// `entry` module slices must remain valid for the duration of this call.
-    pub fn record(self: *Stats, entry: parser.LogEntry) !void {
+    pub fn record(self: *Stats, log_entry: log_entry_mod.LogEntry) !void {
         self.total += 1;
 
-        switch (entry.level) {
+        switch (log_entry.level) {
             .info => self.info += 1,
             .warn => self.warn += 1,
             .@"error" => self.error_count += 1,
             .debug => self.debug += 1,
         }
 
-        const result = try self.per_module.getOrPut(entry.module);
+        const mod = if (log_entry.module.len > 0) log_entry.module else "_";
+        const result = try self.per_module.getOrPut(mod);
         if (!result.found_existing) {
-            result.key_ptr.* = try self.allocator.dupe(u8, entry.module);
+            result.key_ptr.* = try self.allocator.dupe(u8, mod);
             result.value_ptr.* = 0;
         }
         result.value_ptr.* += 1;
@@ -217,14 +218,15 @@ test "Stats record and deinit" {
     var stats = Stats.init(allocator);
     defer stats.deinit();
 
+    const ts: [20]u8 = .{'2'} ** 20;
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = ts,
         .level = .info,
         .module = "auth",
         .message = "ok",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = ts,
         .level = .@"error",
         .module = "auth",
         .message = "fail",
@@ -243,7 +245,7 @@ test "Stats format output" {
     defer stats.deinit();
 
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .warn,
         .module = "db",
         .message = "slow",
@@ -266,19 +268,19 @@ test "Stats format colors level counts" {
     defer stats.deinit();
 
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .info,
         .module = "auth",
         .message = "ok",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .warn,
         .module = "db",
         .message = "slow",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .@"error",
         .module = "auth",
         .message = "fail",
@@ -305,19 +307,19 @@ test "Stats formatJson output" {
     defer stats.deinit();
 
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .info,
         .module = "auth",
         .message = "ok",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .warn,
         .module = "db",
         .message = "slow",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .@"error",
         .module = "auth",
         .message = "fail",
@@ -354,19 +356,19 @@ test "Stats formatTable output" {
     defer stats.deinit();
 
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .info,
         .module = "auth",
         .message = "ok",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .warn,
         .module = "db",
         .message = "slow",
     });
     try stats.record(.{
-        .timestamp = "ts",
+        .timestamp = .{'2'} ** 20,
         .level = .@"error",
         .module = "auth",
         .message = "fail",
