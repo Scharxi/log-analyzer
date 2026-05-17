@@ -1,0 +1,3 @@
+2026-05-03 18:29:23,784 INFO: Sample tracker startup [in /sampleapp/app/__init__.py:62]
+2026-05-03 18:59:03,083 WARNING: Page not found: /favicon.ico [in /sampleapp/app/__init__.py:243]
+2026-05-06 05:57:23,087 ERROR: Error parsing value [in /sampleapp/app/routes/statistics.py:261]
