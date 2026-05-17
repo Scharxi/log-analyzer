@@ -155,7 +155,7 @@ const sample_log =
     \\
 ;
 
-fn defaultIsoProfile() !*const profile.Profile {
+fn defaultIsoProfile() !*profile.Profile {
     const gpa = std.testing.allocator;
     const p = try gpa.create(profile.Profile);
     p.* = try profile.loadPreset(gpa, "iso-structured");

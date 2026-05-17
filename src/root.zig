@@ -34,3 +34,14 @@ pub const processLogStdin = analyze.processLogStdin;
 pub const processLogReader = analyze.processLogReader;
 pub const peekLogFile = analyze.peekLogFile;
 pub const peekLogStdin = analyze.peekLogStdin;
+
+test {
+    const std = @import("std");
+    std.testing.refAllDecls(@This());
+    _ = entry;
+    _ = timestamp;
+    _ = stats;
+    _ = analyze;
+    _ = parser;
+    _ = profile;
+}

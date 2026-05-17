@@ -36,3 +36,10 @@ pub fn detectProfile(lines: []const []const u8, set: *const ProfileSet) *const P
 pub fn presetIds() []const []const u8 {
     return load.presetIds();
 }
+
+test {
+    _ = schema;
+    _ = engine;
+    _ = load;
+    _ = detect;
+}

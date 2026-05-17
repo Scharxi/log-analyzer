@@ -382,7 +382,7 @@ test "Stats formatTable output" {
     try std.testing.expect(std.mem.indexOf(u8, output, "Log analysis summary") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "Total lines:  3") != null);
     try std.testing.expect(std.mem.indexOf(u8, output, "Skipped:      1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "INFO    1") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "auth  2") != null);
-    try std.testing.expect(std.mem.indexOf(u8, output, "db    1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "INFO   1") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "auth    2") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output, "db      1") != null);
 }

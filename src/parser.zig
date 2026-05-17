@@ -72,7 +72,7 @@ test "parse basic log line" {
 test "parse line with empty message" {
     const line = "2026-05-15T20:00:01Z INFO auth";
     const entry_parsed = try parseLine(line);
-    try std.testing.expectEqual("", entry_parsed.message);
+    try std.testing.expectEqualStrings("", entry_parsed.message);
 }
 
 test "parse malformed lines" {

@@ -204,7 +204,7 @@ pub fn parseLine(profile: *const schema.Profile, line: []const u8) entry.ParseEr
 
 test "engine iso-structured preset" {
     const gpa = std.testing.allocator;
-    const p = try load.loadPreset(gpa, "iso-structured");
+    var p = try load.loadPreset(gpa, "iso-structured");
     defer p.deinit(gpa);
 
     const line = "2026-05-15T20:00:01Z INFO auth login ok";
@@ -217,7 +217,7 @@ test "engine iso-structured preset" {
 
 test "engine level-colon preset" {
     const gpa = std.testing.allocator;
-    const p = try load.loadPreset(gpa, "level-colon-suffix");
+    var p = try load.loadPreset(gpa, "level-colon-suffix");
     defer p.deinit(gpa);
 
     const line = "2026-05-03 18:59:03,083 WARNING: Page not found [in /app/routes/x.py:1]";
@@ -228,7 +228,7 @@ test "engine level-colon preset" {
 
 test "engine apache combined preset" {
     const gpa = std.testing.allocator;
-    const p = try load.loadPreset(gpa, "bracket-timestamp-quoted-request");
+    var p = try load.loadPreset(gpa, "bracket-timestamp-quoted-request");
     defer p.deinit(gpa);
 
     const line = "8.134.9.15 - - [17/May/2026:00:56:41 +0000] \"GET /dump.sql HTTP/1.1\" 400 248 \"-\" \"agent\" \"-\"";
