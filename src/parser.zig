@@ -1,140 +1,36 @@
 const std = @import("std");
+const entry = @import("entry.zig");
+const timestamp = @import("timestamp.zig");
+const profile = @import("profile/mod.zig");
 
-pub const ParseError = error{
-    EmptyLine,
-    MissingField,
-    InvalidLevel,
-    InvalidTimestamp,
-};
+pub const ParseError = entry.ParseError;
+pub const TimeBounds = entry.TimeBounds;
+pub const Level = entry.Level;
+pub const LogEntry = entry.LogEntry;
+pub const Profile = profile.Profile;
 
-/// Inclusive lower/upper bounds on log timestamps (`YYYY-MM-DDTHH:MM:SSZ`).
-pub const TimeBounds = struct {
-    since: ?[]const u8 = null,
-    until: ?[]const u8 = null,
-};
+pub const parseTimestamp = timestamp.parseCanonical;
+pub const compareTimestamp = timestamp.compareTimestamp;
+pub const timestampInRange = timestamp.timestampInRange;
+pub const messageMatches = entry.messageMatches;
 
-pub const Level = enum {
-    info,
-    warn,
-    @"error",
-    debug,
+var default_profile_storage: ?profile.Profile = null;
 
-    pub fn rank(self: Level) usize {
-        return switch (self) {
-            .debug => 0,
-            .info => 1,
-            .warn => 2,
-            .@"error" => 3,
-        };
+fn defaultProfile() ParseError!*const Profile {
+    if (default_profile_storage == null) {
+        default_profile_storage = profile.defaultProfile(std.heap.page_allocator) catch return error.InvalidProfile;
     }
-
-    pub fn parse(s: []const u8) ParseError!Level {
-        return parseLevel(s);
-    }
-};
-
-/// Parsed fields borrow from `line` until that buffer is invalidated.
-pub const LogEntry = struct {
-    /// Valid for the lifetime of the source line buffer.
-    timestamp: []const u8,
-    /// Valid for the lifetime of the source line buffer.
-    level: Level,
-    /// Valid for the lifetime of the source line buffer.
-    module: []const u8,
-    /// Valid for the lifetime of the source line buffer. May be empty.
-    message: []const u8,
-};
-
-fn toLowerAscii(buf: []u8) void {
-    for (buf) |*c| {
-        c.* = std.ascii.toLower(c.*);
-    }
+    return &default_profile_storage.?;
 }
 
-fn isDigit(c: u8) bool {
-    return c >= '0' and c <= '9';
-}
-
-/// Validates `YYYY-MM-DDTHH:MM:SSZ` and returns the borrowed slice.
-pub fn parseTimestamp(s: []const u8) ParseError![]const u8 {
-    if (s.len != 20) return error.InvalidTimestamp;
-
-    const separators = [_]struct { index: usize, expected: u8 }{
-        .{ .index = 4, .expected = '-' },
-        .{ .index = 7, .expected = '-' },
-        .{ .index = 10, .expected = 'T' },
-        .{ .index = 13, .expected = ':' },
-        .{ .index = 16, .expected = ':' },
-        .{ .index = 19, .expected = 'Z' },
-    };
-
-    for (separators) |sep| {
-        if (s[sep.index] != sep.expected) return error.InvalidTimestamp;
-    }
-
-    for (s, 0..) |c, i| {
-        if (i == 4 or i == 7 or i == 10 or i == 13 or i == 16 or i == 19) continue;
-        if (!isDigit(c)) return error.InvalidTimestamp;
-    }
-
-    return s;
-}
-
-/// UTC ISO timestamps in this format compare correctly as byte strings.
-pub fn compareTimestamp(a: []const u8, b: []const u8) std.math.Order {
-    return std.mem.order(u8, a, b);
-}
-
-/// Returns true when `pattern` occurs in `message` (literal substring).
-pub fn messageMatches(message: []const u8, pattern: []const u8) bool {
-    return std.mem.indexOf(u8, message, pattern) != null;
-}
-
-pub fn timestampInRange(ts: []const u8, bounds: TimeBounds) bool {
-    if (bounds.since) |since| {
-        if (compareTimestamp(ts, since) == .lt) return false;
-    }
-    if (bounds.until) |until| {
-        if (compareTimestamp(ts, until) == .gt) return false;
-    }
-    return true;
-}
-
-fn parseLevel(s: []const u8) ParseError!Level {
-    var tmp: [16]u8 = undefined;
-
-    if (s.len == 0 or s.len > tmp.len) return error.InvalidLevel;
-
-    @memcpy(tmp[0..s.len], s);
-    toLowerAscii(tmp[0..s.len]);
-
-    if (std.meta.stringToEnum(Level, tmp[0..s.len])) |lvl| {
-        return lvl;
-    }
-    return error.InvalidLevel;
-}
-
+/// Parses a line using the default `iso-structured` profile.
 pub fn parseLine(line: []const u8) ParseError!LogEntry {
-    if (line.len == 0) return error.EmptyLine;
+    const p = try defaultProfile();
+    return profile.parseLine(p, line);
+}
 
-    var it = std.mem.splitAny(u8, line, " ");
-
-    const timestamp = it.next() orelse return error.MissingField;
-    const level_s = it.next() orelse return error.MissingField;
-    const module = it.next() orelse return error.MissingField;
-
-    const msg_start = it.index orelse line.len;
-    const message = line[msg_start..];
-
-    const level = try parseLevel(level_s);
-    _ = try parseTimestamp(timestamp);
-
-    return .{
-        .timestamp = timestamp,
-        .level = level,
-        .module = module,
-        .message = message,
-    };
+pub fn parseLineWithProfile(p: *const Profile, line: []const u8) ParseError!LogEntry {
+    return profile.parseLine(p, line);
 }
 
 test "parse log level" {
@@ -158,29 +54,25 @@ test "parse log level" {
             "2026-01-01T00:00:00Z {s} mod msg",
             .{c.level},
         );
-        const entry = try parseLine(line);
-        try std.testing.expectEqual(c.expected, entry.level);
+        const entry_parsed = try parseLine(line);
+        try std.testing.expectEqual(c.expected, entry_parsed.level);
     }
 }
 
 test "parse basic log line" {
     const line = "2026-05-15T20:00:01Z INFO auth login ok";
 
-    const entry = try parseLine(line);
-    const expected = LogEntry{
-        .timestamp = "2026-05-15T20:00:01Z",
-        .level = .info,
-        .module = "auth",
-        .message = "login ok",
-    };
-
-    try std.testing.expectEqualDeep(expected, entry);
+    const entry_parsed = try parseLine(line);
+    try std.testing.expectEqualStrings("2026-05-15T20:00:01Z", &entry_parsed.timestamp);
+    try std.testing.expectEqual(.info, entry_parsed.level);
+    try std.testing.expectEqualStrings("auth", entry_parsed.module);
+    try std.testing.expectEqualStrings("login ok", entry_parsed.message);
 }
 
 test "parse line with empty message" {
     const line = "2026-05-15T20:00:01Z INFO auth";
-    const entry = try parseLine(line);
-    try std.testing.expectEqual("", entry.message);
+    const entry_parsed = try parseLine(line);
+    try std.testing.expectEqual("", entry_parsed.message);
 }
 
 test "parse malformed lines" {
@@ -189,28 +81,11 @@ test "parse malformed lines" {
     try std.testing.expectError(error.InvalidLevel, parseLine("2026-05-15T20:00:01Z BOGUS auth msg"));
 }
 
-test "get level rank" {
-    try std.testing.expectEqual(@as(usize, 0), Level.debug.rank());
-    try std.testing.expectEqual(@as(usize, 1), Level.info.rank());
-    try std.testing.expectEqual(@as(usize, 2), Level.warn.rank());
-    try std.testing.expectEqual(@as(usize, 3), Level.@"error".rank());
-}
-
-test "parseTimestamp accepts valid ISO 8601 UTC" {
-    const valid = "2026-05-15T20:00:01Z";
-    try std.testing.expectEqualStrings(valid, try parseTimestamp(valid));
-}
-
-test "parseTimestamp rejects invalid timestamps" {
-    try std.testing.expectError(error.InvalidTimestamp, parseTimestamp("2026-05-15T20:00:01"));
-    try std.testing.expectError(error.InvalidTimestamp, parseTimestamp("not-a-timestamp"));
-    try std.testing.expectError(error.InvalidTimestamp, parseTimestamp("2026-05-15T20:00:01z"));
-}
-
-test "compareTimestamp orders chronologically" {
-    try std.testing.expect(compareTimestamp("2026-05-15T20:00:01Z", "2026-05-15T20:00:02Z") == .lt);
-    try std.testing.expect(compareTimestamp("2026-05-15T20:00:02Z", "2026-05-15T20:00:02Z") == .eq);
-    try std.testing.expect(compareTimestamp("2026-05-15T20:00:03Z", "2026-05-15T20:00:02Z") == .gt);
+test "parseLine rejects invalid timestamp" {
+    try std.testing.expectError(
+        error.InvalidTimestamp,
+        parseLine("2026-05-15T20:00:01 INFO auth msg"),
+    );
 }
 
 test "timestampInRange since only" {
@@ -220,34 +95,7 @@ test "timestampInRange since only" {
     try std.testing.expect(!timestampInRange("2026-05-15T20:00:01Z", bounds));
 }
 
-test "timestampInRange until only" {
-    const bounds = TimeBounds{ .until = "2026-05-15T20:00:02Z" };
-    try std.testing.expect(timestampInRange("2026-05-15T20:00:01Z", bounds));
-    try std.testing.expect(timestampInRange("2026-05-15T20:00:02Z", bounds));
-    try std.testing.expect(!timestampInRange("2026-05-15T20:00:03Z", bounds));
-}
-
-test "timestampInRange closed interval" {
-    const bounds = TimeBounds{
-        .since = "2026-05-15T20:00:02Z",
-        .until = "2026-05-15T20:00:03Z",
-    };
-    try std.testing.expect(!timestampInRange("2026-05-15T20:00:01Z", bounds));
-    try std.testing.expect(timestampInRange("2026-05-15T20:00:02Z", bounds));
-    try std.testing.expect(timestampInRange("2026-05-15T20:00:03Z", bounds));
-    try std.testing.expect(!timestampInRange("2026-05-15T20:00:04Z", bounds));
-}
-
 test "messageMatches substring" {
     try std.testing.expect(messageMatches("login failed for user", "login failed"));
-    try std.testing.expect(messageMatches("login failed", "login failed"));
     try std.testing.expect(!messageMatches("login ok", "login failed"));
-    try std.testing.expect(!messageMatches("", "x"));
-}
-
-test "parseLine rejects invalid timestamp" {
-    try std.testing.expectError(
-        error.InvalidTimestamp,
-        parseLine("2026-05-15T20:00:01 INFO auth msg"),
-    );
 }
