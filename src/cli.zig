@@ -19,7 +19,12 @@ pub const CliOptions = struct {
     level: ?log_analyzer.Level = null,
     grep: ?[]const u8 = null,
     time_bounds: log_analyzer.TimeBounds = .{},
+    /// Statistics output format (text, table, json).
     format: OutputFormat = .text,
+    /// Bundled log layout preset id (e.g. iso-structured).
+    log_format: ?[]const u8 = null,
+    format_file: ?[]const u8 = null,
+    format_dir: ?[]const u8 = null,
 };
 
 pub const ParseError = error{
@@ -31,6 +36,9 @@ const level_prefix = "--level=";
 const since_prefix = "--since=";
 const until_prefix = "--until=";
 const format_prefix = "--format=";
+const log_format_prefix = "--log-format=";
+const format_file_prefix = "--format-file=";
+const format_dir_prefix = "--format-dir=";
 const grep_prefix = "--grep=";
 
 fn matchesAny(s: []const u8, names: []const []const u8) bool {
@@ -51,7 +59,8 @@ fn parseLevelValue(s: []const u8) ParseError!log_analyzer.Level {
 }
 
 fn parseTimestampValue(s: []const u8) ParseError![]const u8 {
-    return log_analyzer.parseTimestamp(s) catch return error.InvalidArgument;
+    log_analyzer.parseTimestamp(s) catch return error.InvalidArgument;
+    return s;
 }
 
 fn parseFormatValue(s: []const u8) ParseError!OutputFormat {
@@ -73,6 +82,9 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
     var time_bounds: log_analyzer.TimeBounds = .{};
     var format: OutputFormat = .text;
     var grep: ?[]const u8 = null;
+    var log_format: ?[]const u8 = null;
+    var format_file: ?[]const u8 = null;
+    var format_dir: ?[]const u8 = null;
 
     var i: usize = 1;
     while (i < args.len) : (i += 1) {
@@ -112,6 +124,24 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             continue;
         }
 
+        if (std.mem.startsWith(u8, arg, log_format_prefix)) {
+            if (arg.len <= log_format_prefix.len) return error.InvalidArgument;
+            log_format = arg[log_format_prefix.len..];
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, arg, format_file_prefix)) {
+            if (arg.len <= format_file_prefix.len) return error.InvalidArgument;
+            format_file = arg[format_file_prefix.len..];
+            continue;
+        }
+
+        if (std.mem.startsWith(u8, arg, format_dir_prefix)) {
+            if (arg.len <= format_dir_prefix.len) return error.InvalidArgument;
+            format_dir = arg[format_dir_prefix.len..];
+            continue;
+        }
+
         if (matchesAny(arg, &.{ "-l", "--level" })) {
             i = try takeArg(args, i);
             level = try parseLevelValue(args[i]);
@@ -136,6 +166,18 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
             i = try takeArg(args, i);
             grep = try parseGrepValue(args[i]);
             continue;
+        } else if (matchesAny(arg, &.{ "--log-format" })) {
+            i = try takeArg(args, i);
+            log_format = args[i];
+            continue;
+        } else if (matchesAny(arg, &.{ "--format-file" })) {
+            i = try takeArg(args, i);
+            format_file = args[i];
+            continue;
+        } else if (matchesAny(arg, &.{ "--format-dir" })) {
+            i = try takeArg(args, i);
+            format_dir = args[i];
+            continue;
         }
 
         if (arg.len > 0 and arg[0] == '-') {
@@ -153,6 +195,9 @@ pub fn parseArgs(args: []const []const u8) ParseError!CliOptions {
         .grep = grep,
         .time_bounds = time_bounds,
         .format = format,
+        .log_format = log_format,
+        .format_file = format_file,
+        .format_dir = format_dir,
     };
 }
 
