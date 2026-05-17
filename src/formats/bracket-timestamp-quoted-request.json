@@ -1,0 +1,24 @@
+{
+  "id": "bracket-timestamp-quoted-request",
+  "description": "Client host, bracketed timestamp, quoted HTTP request, status code",
+  "extract": [
+    { "field": "_host", "type": "skip_tokens", "count": 3 },
+    { "field": "message", "type": "quoted" },
+    { "field": "status", "type": "token" },
+    { "field": "_bytes", "type": "token" },
+    { "field": "_referer", "type": "quoted" },
+    { "field": "_agent", "type": "quoted" }
+  ],
+  "timestamp": {
+    "at": "start",
+    "pattern": "[%d/%b/%Y:%H:%M:%S %z]"
+  },
+  "level": {
+    "field": "status",
+    "derive": [
+      { "min": 100, "max": 399, "level": "info" },
+      { "min": 400, "max": 499, "level": "warn" },
+      { "min": 500, "max": 599, "level": "error" }
+    ]
+  }
+}

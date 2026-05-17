@@ -1,0 +1,16 @@
+{
+  "id": "iso-structured",
+  "description": "ISO 8601 UTC timestamp, level, module, and message tokens",
+  "timestamp": {
+    "at": "start",
+    "pattern": "%Y-%m-%dT%H:%M:%SZ"
+  },
+  "extract": [
+    { "field": "level", "type": "token" },
+    { "field": "module", "type": "token" },
+    { "field": "message", "type": "rest" }
+  ],
+  "level": {
+    "field": "level"
+  }
+}

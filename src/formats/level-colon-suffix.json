@@ -1,0 +1,27 @@
+{
+  "id": "level-colon-suffix",
+  "description": "Timestamp, LEVEL: message, optional [in path:line] trailer",
+  "timestamp": {
+    "at": "start",
+    "pattern": "%Y-%m-%d %H:%M:%S,%3f"
+  },
+  "extract": [
+    { "field": "level", "type": "token", "separator": ":" },
+    { "field": "message", "type": "until", "literal": " [in " },
+    {
+      "field": "module",
+      "type": "regex_suffix",
+      "pattern": "\\[in (.+):[0-9]+\\]\\s*$",
+      "group": 1,
+      "transform": "basename_strip_ext",
+      "strip_ext": ".py"
+    }
+  ],
+  "level": {
+    "field": "level",
+    "aliases": [
+      { "from": "WARNING", "to": "warn" },
+      { "from": "CRITICAL", "to": "error" }
+    ]
+  }
+}
